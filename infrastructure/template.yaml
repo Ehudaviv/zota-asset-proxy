@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: 'Asset Proxy - Sandbox Compliant - IAM Auth with Custom OAC Policy'
+Description: 'Asset Proxy - Minimalist Sandbox Version'
 
 Parameters:
   ImageTag:
@@ -13,7 +13,6 @@ Resources:
     Properties:
       BucketName: !Sub 'asset-proxy-${AWS::AccountId}-${AWS::Region}-vault'
 
-  # --- COMPLIANT IAM ROLE ---
   AssetProxyLambdaRole:
     Type: AWS::IAM::Role
     Properties:
@@ -40,8 +39,6 @@ Resources:
                   - "logs:CreateLogGroup"
                   - "logs:CreateLogStream"
                   - "logs:PutLogEvents"
-                  - "ecr:BatchGetImage"
-                  - "ecr:GetDownloadUrlForLayer"
                 Resource: "*"
 
   AssetProxyFunction:
@@ -58,7 +55,6 @@ Resources:
         Variables:
           BUCKET_NAME: !Ref AssetBucket
 
-  # --- IAM AUTHENTICATED URL ---
   AssetFunctionUrl:
     Type: AWS::Lambda::Url
     Properties:
@@ -74,7 +70,6 @@ Resources:
       SourceArn: !Sub 'arn:aws:cloudfront::${AWS::AccountId}:distribution/${AssetDistribution}'
       FunctionUrlAuthType: AWS_IAM
 
-  # --- CLOUDFRONT OAC ---
   LambdaOAC:
     Type: AWS::CloudFront::OriginAccessControl
     Properties: 
@@ -84,23 +79,6 @@ Resources:
         SigningBehavior: always
         SigningProtocol: sigv4
 
-  # --- CUSTOM ORIGIN REQUEST POLICY ---
-  # This replaces the missing Managed Policy to strip the Host header
-  CustomOriginRequestPolicy:
-    Type: AWS::CloudFront::OriginRequestPolicy
-    Properties:
-      OriginRequestPolicyConfig:
-        Name: !Sub "${AWS::StackName}-ExcludeHostHeader"
-        CookiesConfig:
-          CookieBehavior: none
-        HeadersConfig:
-          HeaderBehavior: allExcept
-          Headers:
-            - Host
-        QueryStringsConfig:
-          QueryStringBehavior: all
-
-  # --- DISTRIBUTION ---
   AssetDistribution:
     Type: AWS::CloudFront::Distribution
     Properties:
@@ -116,13 +94,10 @@ Resources:
           TargetOriginId: LambdaOrigin
           ViewerProtocolPolicy: redirect-to-https
           AllowedMethods: [GET, HEAD, OPTIONS]
-          # Managed-CachingOptimized
+          # Using only the most standard, globally recognized policy
+          # This policy (CachingOptimized) does NOT forward the Host header.
           CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6
-          # Our Custom Policy
-          OriginRequestPolicyId: !Ref CustomOriginRequestPolicy
 
 Outputs:
   CloudFrontDomain:
     Value: !GetAtt AssetDistribution.DomainName
-  LambdaFunctionUrl:
-    Value: !GetAtt AssetFunctionUrl.FunctionUrl
