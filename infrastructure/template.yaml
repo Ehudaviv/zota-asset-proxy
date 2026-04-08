@@ -65,11 +65,15 @@ Resources:
         HttpVersion: http2
         Origins:
           - Id: LambdaOrigin
-            # Extracts the hostname from the Function URL
+            # This must be the Lambda URL hostname
             DomainName: !Select [2, !Split ["/", !GetAtt AssetFunctionUrl.FunctionUrl]]
             OriginAccessControlId: !Ref LambdaOAC
             CustomOriginConfig:
               OriginProtocolPolicy: https-only
+            # --- THE MAGIC FIX ---
+            OriginCustomHeaders:
+              - HeaderName: "Host"
+                HeaderValue: !Select [2, !Split ["/", !GetAtt AssetFunctionUrl.FunctionUrl]]
         DefaultCacheBehavior:
           TargetOriginId: LambdaOrigin
           ViewerProtocolPolicy: redirect-to-https
