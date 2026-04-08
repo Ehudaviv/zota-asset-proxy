@@ -64,7 +64,7 @@ jobs:
       - name: Deploy CloudFormation Stack
         run: |
           aws cloudformation deploy \
-            --template-file template.yaml \
+            --template-file infrastructure/template.yaml \
             --stack-name ${{ env.STACK_NAME }} \
             --capabilities CAPABILITY_NAMED_IAM \
             --parameter-overrides ImageUri=${{ needs.build-and-push.outputs.image_uri }}
