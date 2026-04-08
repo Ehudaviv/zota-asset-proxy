@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: 'Serverless asset proxy - Final Version'
+Description: 'Serverless asset proxy - Managed Policy Version'
 
 Parameters:
   ImageTag:
@@ -11,14 +11,13 @@ Resources:
   AssetBucket:
     Type: AWS::S3::Bucket
     Properties:
-      # Matches 'asset-proxy-*' prefix for S3 permissions
       BucketName: !Sub 'asset-proxy-${AWS::AccountId}-${AWS::Region}-vault'
 
   ProxyExecutionRole:
     Type: AWS::IAM::Role
     Properties:
-      # Matches 'asset-proxy-*' prefix for IAM permissions
-      RoleName: !Sub 'asset-proxy-role-${ImageTag}'
+      # Use a simple, clean name that matches the 'asset-proxy-*' wildcard
+      RoleName: !Sub 'asset-proxy-lambda-role-${ImageTag}'
       PermissionsBoundary: !Sub 'arn:aws:iam::${AWS::AccountId}:policy/CandidatePermissionsBoundary'
       AssumeRolePolicyDocument:
         Version: '2012-10-17'
@@ -27,29 +26,13 @@ Resources:
             Principal:
               Service: lambda.amazonaws.com
             Action: sts:AssumeRole
-      Policies:
-        - PolicyName: AssetProxyInlinePolicy
-          PolicyDocument:
-            Version: '2012-10-17'
-            Statement:
-              - Effect: Allow
-                Action:
-                  - logs:CreateLogGroup
-                  - logs:CreateLogStream
-                  - logs:PutLogEvents
-                Resource: "arn:aws:logs:*:*:*"
-              - Effect: Allow
-                Action: 
-                  - s3:GetObject
-                  - s3:ListBucket
-                Resource: 
-                  - !Sub 'arn:aws:s3:::asset-proxy-${AWS::AccountId}-${AWS::Region}-vault'
-                  - !Sub 'arn:aws:s3:::asset-proxy-${AWS::AccountId}-${AWS::Region}-vault/*'
+      # INSTEAD OF INLINE POLICIES, USE THE ONLY ONE EXPLICITLY ALLOWED IN THE CHALLENGE
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole'
 
   AssetProxyFunction:
     Type: AWS::Lambda::Function
     Properties:
-      # Matches 'asset-proxy-*' prefix for Lambda permissions
       FunctionName: !Sub 'asset-proxy-func-${ImageTag}'
       PackageType: Image
       Code:
@@ -100,5 +83,3 @@ Resources:
 Outputs:
   CloudFrontDomain:
     Value: !GetAtt AssetDistribution.DomainName
-  LambdaUrl:
-    Value: !GetAtt AssetFunctionUrl.FunctionUrl
