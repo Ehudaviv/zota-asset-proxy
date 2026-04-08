@@ -18,7 +18,6 @@ Resources:
   ProxyExecutionRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: asset-proxy-lambda-role
       # REQUIRED by your policy boundary condition
       PermissionsBoundary: !Sub 'arn:aws:iam::${AWS::AccountId}:policy/CandidatePermissionsBoundary'
       AssumeRolePolicyDocument:
