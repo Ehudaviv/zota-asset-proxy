@@ -1,20 +1,25 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: 'Serverless asset proxy'
+Description: 'Serverless asset proxy - Fixed for Sandbox Guardrails'
 
 Parameters:
-  LambdaImageUri:
+  # These match exactly what your GitHub Action passes in 'parameter-overrides'
+  ImageTag:
+    Type: String
+  ProjectName:
     Type: String
 
 Resources:
   AssetBucket:
     Type: AWS::S3::Bucket
     Properties:
+      # Explicitly named to ensure the 'asset-proxy-*' prefix is met
       BucketName: !Sub 'asset-proxy-${AWS::AccountId}-${AWS::Region}-vault'
 
   ProxyExecutionRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: asset-proxy-lambda-role 
+      RoleName: asset-proxy-lambda-role
+      # REQUIRED by your policy boundary condition
       PermissionsBoundary: !Sub 'arn:aws:iam::${AWS::AccountId}:policy/CandidatePermissionsBoundary'
       AssumeRolePolicyDocument:
         Version: '2012-10-17'
@@ -31,15 +36,22 @@ Resources:
             Version: '2012-10-17'
             Statement:
               - Effect: Allow
-                Action: s3:GetObject
-                Resource: !Sub ${AssetBucket.Arn}/*
+                Action: 
+                  - s3:GetObject
+                  - s3:ListBucket
+                Resource: 
+                  - !Sub 'arn:aws:s3:::asset-proxy-${AWS::AccountId}-${AWS::Region}-vault'
+                  - !Sub 'arn:aws:s3:::asset-proxy-${AWS::AccountId}-${AWS::Region}-vault/*'
 
   AssetProxyFunction:
     Type: AWS::Lambda::Function
     Properties:
+      FunctionName: asset-proxy-function
       PackageType: Image
       Code:
-        ImageUri: !Ref LambdaImageUri
+        # Constructing URI: account.dkr.ecr.region.amazonaws.com/repo:tag
+        # Note: repository name must match what you pushed to in ECR
+        ImageUri: !Sub '${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/zota-asset-proxy:${ImageTag}'
       Role: !GetAtt ProxyExecutionRole.Arn
       Architectures:
         - arm64
@@ -69,13 +81,24 @@ Resources:
         Enabled: true
         Origins:
           - Id: LambdaOrigin
-            DomainName: !Select [2, !Split ["/", !GetAtt AssetFunctionUrl.FunctionUrl]]
+            # Using the Fn::Select trick to strip "https://" and "/" from the Function URL
+            DomainName: 
+              Fn::Select:
+                - 2
+                - Fn::Split:
+                    - "/"
+                    - !GetAtt AssetFunctionUrl.FunctionUrl
             CustomOriginConfig:
               OriginProtocolPolicy: https-only
         DefaultCacheBehavior:
           TargetOriginId: LambdaOrigin
           ViewerProtocolPolicy: redirect-to-https
+          # Caching Optimized policy ID
           CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6
+          AllowedMethods:
+            - GET
+            - HEAD
+            - OPTIONS
 
 Outputs:
   CloudFrontDomain:
