@@ -30,6 +30,7 @@ jobs:
           name: zota-asset-proxy-stack
           template: infrastructure/template.yaml
           no-fail-on-empty-changeset: "1"
+          create-stack-if-not-exists: "true" 
           parameter-overrides: >-
             ImageTag=${{ inputs.image_tag }},
             ProjectName=zota-asset-proxy
