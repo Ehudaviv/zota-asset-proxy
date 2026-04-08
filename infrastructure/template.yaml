@@ -44,7 +44,6 @@ Resources:
       FunctionName: !Ref AssetProxyFunction
       Action: lambda:InvokeFunctionUrl
       Principal: cloudfront.amazonaws.com
-      SourceArn: !Sub 'arn:aws:cloudfront::${AWS::AccountId}:distribution/${AssetDistribution}'
       FunctionUrlAuthType: AWS_IAM
 
   # --- CloudFront Security (OAC) ---
