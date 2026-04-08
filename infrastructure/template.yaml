@@ -14,7 +14,7 @@ Resources:
     Properties:
       BucketName: !Sub 'asset-proxy-${AWS::AccountId}-${AWS::Region}-vault'
 
-  # --- Managed IAM Role (Bypassing CLI AccessDenied) ---
+  # --- Managed IAM Role ---
   AssetProxyLambdaRole:
     Type: AWS::IAM::Role
     Properties:
@@ -56,14 +56,14 @@ Resources:
         Variables:
           BUCKET_NAME: !Ref AssetBucket
 
-  # --- Function URL (Secured with IAM) ---
+  # --- Function URL (IAM Auth) ---
   AssetFunctionUrl:
     Type: AWS::Lambda::Url
     Properties:
       AuthType: AWS_IAM
       TargetFunctionArn: !Ref AssetProxyFunction
 
-  # --- Permissions (The OAC Handshake) ---
+  # --- OAC Handshake Permission ---
   UrlInvokePermission:
     Type: AWS::Lambda::Permission
     Properties:
@@ -83,9 +83,8 @@ Resources:
         SigningBehavior: always
         SigningProtocol: sigv4
 
-  # --- THE SIGV4 BRIDGE: CloudFront Function ---
-  # This function sets the Host header to the Lambda URL domain BEFORE the 
-  # OAC signature is calculated, ensuring the handshake succeeds.
+  # --- THE FIX: CloudFront Function ---
+  # We use a simple variable for the hostname to satisfy Fn::Sub syntax.
   HostHeaderFunction:
     Type: AWS::CloudFront::Function
     Properties:
@@ -93,13 +92,15 @@ Resources:
       FunctionConfig:
         Comment: "Fixes Host header for Lambda OAC signature"
         Runtime: cloudfront-js-1.0
-      FunctionCode: !Sub |
-        function handler(event) {
-          var request = event.request;
-          // Set host to the Lambda URL domain (extracting from FunctionUrl)
-          request.headers['host'] = { value: '${AssetFunctionUrl.FunctionUrl.Select(2, "/").Split("/")}' };
-          return request;
-        }
+      FunctionCode: 
+        Fn::Sub: 
+          - |
+            function handler(event) {
+              var request = event.request;
+              request.headers['host'] = { value: '${LambdaHost}' };
+              return request;
+            }
+          - LambdaHost: !Select [2, !Split ["/", !GetAtt AssetFunctionUrl.FunctionUrl]]
 
   # --- Distribution ---
   AssetDistribution:
