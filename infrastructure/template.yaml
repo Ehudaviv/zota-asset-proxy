@@ -73,11 +73,18 @@ Resources:
         DefaultCacheBehavior:
           TargetOriginId: LambdaOrigin
           ViewerProtocolPolicy: redirect-to-https
-          # Managed-CachingOptimized
+          # Managed-CachingOptimized (This one usually exists everywhere)
           CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6
-          # Managed-AllViewerExceptHostHeader (CRITICAL: Fixes the 403 Signature mismatch)
-          OriginRequestPolicyId: b689b0a8-53d0-40a4-b40b-d8a843e231e9
           AllowedMethods: [GET, HEAD, OPTIONS]
+          # REMOVE OriginRequestPolicyId and use ForwardedValues instead
+          ForwardedValues:
+            QueryString: true
+            Headers: 
+              - "Origin"
+              - "Access-Control-Request-Headers"
+              - "Access-Control-Request-Method"
+            Cookies:
+              Forward: none
 
 Outputs:
   LambdaFunctionURL:
