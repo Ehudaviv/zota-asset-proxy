@@ -1,22 +1,28 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: 'Asset Proxy - Minimalist Sandbox Version'
+Description: 'Serverless Asset Proxy Infrastructure'
 
 Parameters:
-  ImageTag:
+  ImageUri:
     Type: String
-  ProjectName:
-    Type: String
+    Description: 'URI of the Lambda container image in ECR'
 
 Resources:
+  # 1. Private S3 Bucket
   AssetBucket:
     Type: AWS::S3::Bucket
     Properties:
-      BucketName: !Sub 'asset-proxy-${AWS::AccountId}-${AWS::Region}-vault'
+      BucketName: !Sub 'asset-proxy-data-${AWS::AccountId}-${AWS::Region}'
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
 
-  AssetProxyLambdaRole:
+  # 2. IAM Role for Lambda
+  LambdaExecutionRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub 'asset-proxy-role-${AWS::StackName}'
+      RoleName: !Sub 'asset-proxy-lambda-role-${AWS::Region}'
       PermissionsBoundary: 'arn:aws:iam::377786476724:policy/CandidatePermissionsBoundary'
       AssumeRolePolicyDocument:
         Version: '2012-10-17'
@@ -25,79 +31,94 @@ Resources:
             Principal:
               Service: lambda.amazonaws.com
             Action: sts:AssumeRole
+      # The sandbox specifically allows attaching this exact managed policy
       ManagedPolicyArns:
-        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+        - 'arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole'
       Policies:
-        - PolicyName: BoundaryAlignment
+        - PolicyName: asset-proxy-s3-policy
           PolicyDocument:
             Version: '2012-10-17'
             Statement:
               - Effect: Allow
                 Action:
-                  - "s3:GetObject"
-                  - "s3:ListBucket"
-                  - "logs:CreateLogGroup"
-                  - "logs:CreateLogStream"
-                  - "logs:PutLogEvents"
-                Resource: "*"
+                  - 's3:GetObject'
+                  - 's3:ListBucket'
+                Resource:
+                  - !Sub '${AssetBucket.Arn}'
+                  - !Sub '${AssetBucket.Arn}/*'
 
+  # 3. Lambda Function
   AssetProxyFunction:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub 'asset-proxy-func-${ImageTag}'
+      FunctionName: !Sub 'asset-proxy-func-${AWS::Region}'
       PackageType: Image
       Code:
-        ImageUri: !Sub '${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/zota-asset-proxy:${ImageTag}'
-      Role: !GetAtt AssetProxyLambdaRole.Arn
-      Architectures: [arm64]
-      Timeout: 20
+        ImageUri: !Ref ImageUri
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Architectures:
+        - arm64
       Environment:
         Variables:
           BUCKET_NAME: !Ref AssetBucket
 
-  AssetFunctionUrl:
+  # 4. Lambda Function URL (IAM Auth required)
+  AssetProxyFunctionUrl:
     Type: AWS::Lambda::Url
     Properties:
-      AuthType: AWS_IAM
       TargetFunctionArn: !Ref AssetProxyFunction
+      AuthType: AWS_IAM
 
-  UrlInvokePermission:
+  # 5. Resource Policy allowing CloudFront to invoke the Lambda URL
+  LambdaInvokePermission:
     Type: AWS::Lambda::Permission
     Properties:
       FunctionName: !Ref AssetProxyFunction
       Action: lambda:InvokeFunctionUrl
       Principal: cloudfront.amazonaws.com
-      SourceArn: !Sub 'arn:aws:cloudfront::${AWS::AccountId}:distribution/${AssetDistribution}'
+      SourceArn: !Sub 'arn:aws:cloudfront::${AWS::AccountId}:distribution/${AssetProxyDistribution}'
       FunctionUrlAuthType: AWS_IAM
 
-  LambdaOAC:
+  # 6. CloudFront Origin Access Control (OAC)
+  CloudFrontOAC:
     Type: AWS::CloudFront::OriginAccessControl
-    Properties: 
-      OriginAccessControlConfig: 
-        Name: !Sub '${AWS::StackName}-OAC'
+    Properties:
+      OriginAccessControlConfig:
+        Name: !Sub 'asset-proxy-oac-${AWS::StackName}'
         OriginAccessControlOriginType: lambda
         SigningBehavior: always
         SigningProtocol: sigv4
 
-  AssetDistribution:
+  # 7. CloudFront Distribution
+  AssetProxyDistribution:
     Type: AWS::CloudFront::Distribution
     Properties:
       DistributionConfig:
         Enabled: true
         Origins:
           - Id: LambdaOrigin
-            DomainName: !Select [2, !Split ["/", !GetAtt AssetFunctionUrl.FunctionUrl]]
-            OriginAccessControlId: !Ref LambdaOAC
+            # Extracts the bare domain name from the Function URL (removes https:// and trailing /)
+            DomainName: !Select [2, !Split ['/', !GetAtt AssetProxyFunctionUrl.FunctionUrl]]
             CustomOriginConfig:
               OriginProtocolPolicy: https-only
+            OriginAccessControlId: !GetAtt CloudFrontOAC.Id
         DefaultCacheBehavior:
           TargetOriginId: LambdaOrigin
           ViewerProtocolPolicy: redirect-to-https
-          AllowedMethods: [GET, HEAD, OPTIONS]
-          # Using only the most standard, globally recognized policy
-          # This policy (CachingOptimized) does NOT forward the Host header.
+          AllowedMethods:
+            - GET
+            - HEAD
+          CachedMethods:
+            - GET
+            - HEAD
+          # Using AWS Managed CachingOptimized policy for simplicity and security
           CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6
+          Compress: true
 
 Outputs:
   CloudFrontDomain:
-    Value: !GetAtt AssetDistribution.DomainName
+    Description: 'URL of the CloudFront Distribution'
+    Value: !Sub 'https://${AssetProxyDistribution.DomainName}'
+  S3BucketName:
+    Description: 'Name of the private S3 bucket'
+    Value: !Ref AssetBucket

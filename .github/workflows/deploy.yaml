@@ -1,44 +1,44 @@
-name: Deploy Infrastructure
+# name: Deploy Infrastructure
 
-on:
-  workflow_call:
-    inputs:
-      image_tag:
-        required: true
-        type: string
+# on:
+#   workflow_call:
+#     inputs:
+#       image_tag:
+#         required: true
+#         type: string
 
-jobs:
-  deploy:
-    runs-on: ubuntu-latest
-    permissions:
-      id-token: write
-      contents: read
+# jobs:
+#   deploy:
+#     runs-on: ubuntu-latest
+#     permissions:
+#       id-token: write
+#       contents: read
 
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+#     steps:
+#       - name: Checkout code
+#         uses: actions/checkout@v4
 
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/github-actions-deploy
-          aws-region: eu-central-1
+#       - name: Configure AWS credentials
+#         uses: aws-actions/configure-aws-credentials@v4
+#         with:
+#           role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/github-actions-deploy
+#           aws-region: eu-central-1
 
-      - name: Deploy CloudFormation
-        uses: aws-actions/aws-cloudformation-github-deploy@v1
-        with:
-          name: asset-proxy-stack
-          template: infrastructure/template.yaml
-          no-fail-on-empty-changeset: "1"
-          parameter-overrides: >-
-            ImageTag=${{ inputs.image_tag }},
-            ProjectName=asset-proxy-stack
-          capabilities: CAPABILITY_NAMED_IAM
-      - name: Output Deployment Details
-        run: |
-          echo "--- DEPLOYMENT REPORT ---"
-          aws cloudformation describe-stacks \
-            --stack-name asset-proxy-stack \
-            --query 'Stacks[0].Outputs' \
-            --output table
-          echo "--- END DEPLOYMENT REPORT ---"
+#       - name: Deploy CloudFormation
+#         uses: aws-actions/aws-cloudformation-github-deploy@v1
+#         with:
+#           name: asset-proxy-stack
+#           template: infrastructure/template.yaml
+#           no-fail-on-empty-changeset: "1"
+#           parameter-overrides: >-
+#             ImageTag=${{ inputs.image_tag }},
+#             ProjectName=asset-proxy-stack
+#           capabilities: CAPABILITY_NAMED_IAM
+#       - name: Output Deployment Details
+#         run: |
+#           echo "--- DEPLOYMENT REPORT ---"
+#           aws cloudformation describe-stacks \
+#             --stack-name asset-proxy-stack \
+#             --query 'Stacks[0].Outputs' \
+#             --output table
+#           echo "--- END DEPLOYMENT REPORT ---"
