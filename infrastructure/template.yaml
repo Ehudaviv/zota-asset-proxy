@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: 'Serverless asset proxy - Secured OAC Architecture'
+Description: 'Serverless asset proxy - Secured OAC Architecture with Managed IAM'
 
 Parameters:
   ImageTag:
@@ -14,6 +14,32 @@ Resources:
     Properties:
       BucketName: !Sub 'asset-proxy-${AWS::AccountId}-${AWS::Region}-vault'
 
+  # --- Managed IAM Role (Bypassing CLI AccessDenied) ---
+  AssetProxyLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: S3VaultReadAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:ListBucket
+                Resource:
+                  - !Sub 'arn:aws:s3:::${AssetBucket}'
+                  - !Sub 'arn:aws:s3:::${AssetBucket}/*'
+
   # --- Lambda Function ---
   AssetProxyFunction:
     Type: AWS::Lambda::Function
@@ -22,7 +48,7 @@ Resources:
       PackageType: Image
       Code:
         ImageUri: !Sub '${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/zota-asset-proxy:${ImageTag}'
-      Role: !Sub 'arn:aws:iam::${AWS::AccountId}:role/asset-proxy-lambda-role-manual'
+      Role: !GetAtt AssetProxyLambdaRole.Arn
       Architectures:
         - arm64
       Timeout: 20
@@ -44,6 +70,7 @@ Resources:
       FunctionName: !Ref AssetProxyFunction
       Action: lambda:InvokeFunctionUrl
       Principal: cloudfront.amazonaws.com
+      SourceArn: !Sub 'arn:aws:cloudfront::${AWS::AccountId}:distribution/${AssetDistribution}'
       FunctionUrlAuthType: AWS_IAM
 
   # --- CloudFront Security (OAC) ---
@@ -55,6 +82,24 @@ Resources:
         OriginAccessControlOriginType: lambda
         SigningBehavior: always
         SigningProtocol: sigv4
+
+  # --- THE SIGV4 BRIDGE: CloudFront Function ---
+  # This function sets the Host header to the Lambda URL domain BEFORE the 
+  # OAC signature is calculated, ensuring the handshake succeeds.
+  HostHeaderFunction:
+    Type: AWS::CloudFront::Function
+    Properties:
+      Name: !Sub "${AWS::StackName}-FixHost"
+      FunctionConfig:
+        Comment: "Fixes Host header for Lambda OAC signature"
+        Runtime: cloudfront-js-1.0
+      FunctionCode: !Sub |
+        function handler(event) {
+          var request = event.request;
+          // Set host to the Lambda URL domain (extracting from FunctionUrl)
+          request.headers['host'] = { value: '${AssetFunctionUrl.FunctionUrl.Select(2, "/").Split("/")}' };
+          return request;
+        }
 
   # --- Distribution ---
   AssetDistribution:
@@ -73,10 +118,9 @@ Resources:
           TargetOriginId: LambdaOrigin
           ViewerProtocolPolicy: redirect-to-https
           AllowedMethods: [GET, HEAD, OPTIONS]
-          
-          # We go back to ForwardedValues because the Managed Policies are 404ing
-          # By NOT including "Host" in the Headers list, CloudFront will correctly
-          # use the Origin Domain Name for the SigV4 signature.
+          FunctionAssociations:
+            - EventType: viewer-request
+              FunctionARN: !GetAtt HostHeaderFunction.FunctionARN
           ForwardedValues:
             QueryString: true
             Cookies:
