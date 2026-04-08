@@ -11,7 +11,6 @@ The flow is pretty straightforward but highly secure:
 - **CloudFront:** The global entry point. It uses Origin Access Control (OAC) to sign requests, ensuring that no one can bypass the CDN and hit the Lambda directly.
 
 ## Why I Built It This Way (Design Notes)
-
 While building this, I focused on a few "SecOps-first" principles:
 
 ### 1. Modern Security (No More API Keys)
