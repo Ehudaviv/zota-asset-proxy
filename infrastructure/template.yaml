@@ -43,8 +43,8 @@ Resources:
     Properties:
       FunctionName: !Ref AssetProxyFunction
       Action: lambda:InvokeFunctionUrl
-      Principal: cloudfront.amazonaws.com
-      SourceArn: !Sub 'arn:aws:cloudfront::${AWS::AccountId}:distribution/${AssetDistribution}'
+      Principal: "*" # Keep it open for a moment
+      FunctionUrlAuthType: NONE
 
   # --- CloudFront Security (OAC) ---
   LambdaOAC:
@@ -73,18 +73,20 @@ Resources:
         DefaultCacheBehavior:
           TargetOriginId: LambdaOrigin
           ViewerProtocolPolicy: redirect-to-https
-          # Managed-CachingOptimized (This one usually exists everywhere)
-          CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6
           AllowedMethods: [GET, HEAD, OPTIONS]
-          # REMOVE OriginRequestPolicyId and use ForwardedValues instead
+          # We move to manual forwarding to ensure Host is NOT included
           ForwardedValues:
             QueryString: true
-            Headers: 
-              - "Origin"
-              - "Access-Control-Request-Headers"
-              - "Access-Control-Request-Method"
             Cookies:
               Forward: none
+            Headers:
+              - Origin
+              - Access-Control-Request-Headers
+              - Access-Control-Request-Method
+          # Minimum TTLs for SRE sanity during testing
+          MinTTL: 0
+          DefaultTTL: 3600
+          MaxTTL: 86400
 
 Outputs:
   LambdaFunctionURL:
