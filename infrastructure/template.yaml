@@ -34,17 +34,18 @@ Resources:
   AssetFunctionUrl:
     Type: AWS::Lambda::Url
     Properties:
-      AuthType: AWS_IAM # Switched from NONE to bypass sandbox SCPs
+      AuthType: AWS_IAM
       TargetFunctionArn: !Ref AssetProxyFunction
 
-  # --- Permissions (The Handshake) ---
+  # --- Permissions (The OAC Handshake) ---
   UrlInvokePermission:
     Type: AWS::Lambda::Permission
     Properties:
       FunctionName: !Ref AssetProxyFunction
       Action: lambda:InvokeFunctionUrl
-      Principal: "*" # Keep it open for a moment
-      FunctionUrlAuthType: NONE
+      Principal: cloudfront.amazonaws.com
+      SourceArn: !Sub 'arn:aws:cloudfront::${AWS::AccountId}:distribution/${AssetDistribution}'
+      FunctionUrlAuthType: AWS_IAM
 
   # --- CloudFront Security (OAC) ---
   LambdaOAC:
@@ -56,6 +57,19 @@ Resources:
         SigningBehavior: always
         SigningProtocol: sigv4
 
+  # --- Origin Request Policy (Fixes Host Header Mismatch) ---
+  LambdaOriginRequestPolicy:
+    Type: AWS::CloudFront::OriginRequestPolicy
+    Properties:
+      OriginRequestPolicyConfig:
+        Name: !Sub "${AWS::StackName}-LambdaOriginPolicy"
+        HeadersConfig:
+          HeaderBehavior: allViewerExceptHost
+        CookiesConfig:
+          CookieBehavior: none
+        QueryStringsConfig:
+          QueryStringBehavior: all
+
   # --- Distribution ---
   AssetDistribution:
     Type: AWS::CloudFront::Distribution
@@ -65,32 +79,17 @@ Resources:
         HttpVersion: http2
         Origins:
           - Id: LambdaOrigin
-            # This must be the Lambda URL hostname
             DomainName: !Select [2, !Split ["/", !GetAtt AssetFunctionUrl.FunctionUrl]]
             OriginAccessControlId: !Ref LambdaOAC
             CustomOriginConfig:
               OriginProtocolPolicy: https-only
-            # --- THE MAGIC FIX ---
-            OriginCustomHeaders:
-              - HeaderName: "Host"
-                HeaderValue: !Select [2, !Split ["/", !GetAtt AssetFunctionUrl.FunctionUrl]]
         DefaultCacheBehavior:
           TargetOriginId: LambdaOrigin
           ViewerProtocolPolicy: redirect-to-https
           AllowedMethods: [GET, HEAD, OPTIONS]
-          # We move to manual forwarding to ensure Host is NOT included
-          ForwardedValues:
-            QueryString: true
-            Cookies:
-              Forward: none
-            Headers:
-              - Origin
-              - Access-Control-Request-Headers
-              - Access-Control-Request-Method
-          # Minimum TTLs for SRE sanity during testing
-          MinTTL: 0
-          DefaultTTL: 3600
-          MaxTTL: 86400
+          # Modern CloudFront configuration
+          CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad # Managed-CachingDisabled
+          OriginRequestPolicyId: !Ref LambdaOriginRequestPolicy
 
 Outputs:
   LambdaFunctionURL:
