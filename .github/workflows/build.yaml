@@ -48,3 +48,7 @@ jobs:
     with:
       image_tag: ${{ needs.build-and-push.outputs.image_tag }}
     secrets: inherit
+    permissions:
+      id-token: write
+      contents: read
+      secrets: inherit
