@@ -64,7 +64,7 @@ Resources:
       OriginRequestPolicyConfig:
         Name: !Sub "${AWS::StackName}-LambdaOriginPolicy"
         HeadersConfig:
-          HeaderBehavior: allViewerExceptHost
+          HeaderBehavior: AllViewerExceptHostHeader
         CookiesConfig:
           CookieBehavior: none
         QueryStringsConfig:
