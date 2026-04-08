@@ -27,11 +27,10 @@ jobs:
       - name: Deploy CloudFormation
         uses: aws-actions/aws-cloudformation-github-deploy@v1
         with:
-          name: zota-asset-proxy-stack
+          name: asset-proxy-stack
           template: infrastructure/template.yaml
           no-fail-on-empty-changeset: "1"
-          create-stack-if-not-exists: "true" 
           parameter-overrides: >-
             ImageTag=${{ inputs.image_tag }},
-            ProjectName=zota-asset-proxy
+            ProjectName=asset-proxy-stack
           capabilities: CAPABILITY_NAMED_IAM

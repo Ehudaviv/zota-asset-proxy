@@ -6,52 +6,16 @@ Parameters:
     Type: String
 
 Resources:
-  # The OIDC Provider (usually created once per account)
-  GitHubOIDCProvider:
-    Type: AWS::IAM::OIDCProvider
-    Properties:
-      Url: https://token.actions.githubusercontent.com
-      ClientIdList: [sts.amazonaws.com]
-      ThumbprintList: [6938fd4d98bab03faadb97b34396831e3780aea1]
-
-  # The Role GitHub Actions will assume
-  GitHubActionsRole:
-    Type: AWS::IAM::Role
-    Properties:
-      RoleName: GitHubActionsDeploymentRole
-      AssumeRolePolicyDocument:
-        Version: '2012-10-17'
-        Statement:
-          - Effect: Allow
-            Principal:
-              Federated: !Ref GitHubOIDCProvider
-            Action: sts:AssumeRoleWithWebIdentity
-            Condition:
-              StringLike:
-                # Restrict to your specific repo
-                token.actions.githubusercontent.com:sub: "repo:YOUR_GITHUB_ORG/YOUR_REPO_NAME:*"
-      Policies:
-        - PolicyName: GitHubDeploymentPermissions
-          PolicyDocument:
-            Version: '2012-10-17'
-            Statement:
-              - Effect: Allow
-                Action:
-                  - ecr:*
-                  - lambda:*
-                  - cloudformation:*
-                  - s3:*
-                  - cloudfront:*
-                  - iam:PassRole
-                Resource: "*"
   AssetBucket:
     Type: AWS::S3::Bucket
     Properties:
-      BucketName: !Sub 'media-delivery-${AWS::AccountId}-${AWS::Region}-vault'
+      BucketName: !Sub 'asset-proxy-${AWS::AccountId}-${AWS::Region}-vault'
 
   ProxyExecutionRole:
     Type: AWS::IAM::Role
     Properties:
+      RoleName: asset-proxy-lambda-role 
+      PermissionsBoundary: !Sub 'arn:aws:iam::${AWS::AccountId}:policy/CandidatePermissionsBoundary'
       AssumeRolePolicyDocument:
         Version: '2012-10-17'
         Statement:
@@ -82,7 +46,7 @@ Resources:
       Timeout: 20
       Environment:
         Variables:
-    BUCKET_NAME: !Ref AssetBucket
+          BUCKET_NAME: !Ref AssetBucket
 
   AssetFunctionUrl:
     Type: AWS::Lambda::Url
