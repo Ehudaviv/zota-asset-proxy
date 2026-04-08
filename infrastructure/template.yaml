@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: 'Serverless asset proxy - Anonymous Role Version'
+Description: 'Serverless asset proxy - Final Version'
 
 Parameters:
   ImageTag:
@@ -11,12 +11,14 @@ Resources:
   AssetBucket:
     Type: AWS::S3::Bucket
     Properties:
+      # Matches 'asset-proxy-*' prefix for S3 permissions
       BucketName: !Sub 'asset-proxy-${AWS::AccountId}-${AWS::Region}-vault'
 
   ProxyExecutionRole:
     Type: AWS::IAM::Role
     Properties:
-      # DO NOT add RoleName here
+      # Matches 'asset-proxy-*' prefix for IAM permissions
+      RoleName: !Sub 'asset-proxy-role-${ImageTag}'
       PermissionsBoundary: !Sub 'arn:aws:iam::${AWS::AccountId}:policy/CandidatePermissionsBoundary'
       AssumeRolePolicyDocument:
         Version: '2012-10-17'
@@ -26,7 +28,7 @@ Resources:
               Service: lambda.amazonaws.com
             Action: sts:AssumeRole
       Policies:
-        - PolicyName: LambdaLogsAndS3
+        - PolicyName: AssetProxyInlinePolicy
           PolicyDocument:
             Version: '2012-10-17'
             Statement:
@@ -47,7 +49,8 @@ Resources:
   AssetProxyFunction:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: asset-proxy-function
+      # Matches 'asset-proxy-*' prefix for Lambda permissions
+      FunctionName: !Sub 'asset-proxy-func-${ImageTag}'
       PackageType: Image
       Code:
         ImageUri: !Sub '${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/zota-asset-proxy:${ImageTag}'
@@ -92,10 +95,7 @@ Resources:
           TargetOriginId: LambdaOrigin
           ViewerProtocolPolicy: redirect-to-https
           CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6
-          AllowedMethods:
-            - GET
-            - HEAD
-            - OPTIONS
+          AllowedMethods: [GET, HEAD, OPTIONS]
 
 Outputs:
   CloudFrontDomain:
