@@ -3,9 +3,9 @@ name: Build & Push
 on:
   push:
     branches:
-      - main # Or master
+      - main 
     paths-ignore:
-      - 'infrastructure/**' # Optional: prevent build if only infrastructure changed
+      - 'infrastructure/**'
 
 permissions:
   id-token: write
