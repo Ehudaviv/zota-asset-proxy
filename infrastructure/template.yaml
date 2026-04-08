@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: 'Asset Proxy - Sandbox Compliant - No Functions'
+Description: 'Asset Proxy - Sandbox Compliant - IAM Auth with OAC'
 
 Parameters:
   ImageTag:
@@ -29,17 +29,20 @@ Resources:
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
       Policies:
-        - PolicyName: S3Access
+        - PolicyName: BoundaryAlignment
           PolicyDocument:
             Version: '2012-10-17'
             Statement:
               - Effect: Allow
                 Action:
-                  - s3:GetObject
-                  - s3:ListBucket
-                Resource:
-                  - !Sub 'arn:aws:s3:::${AssetBucket}'
-                  - !Sub 'arn:aws:s3:::${AssetBucket}/*'
+                  - "s3:GetObject"
+                  - "s3:ListBucket"
+                  - "logs:CreateLogGroup"
+                  - "logs:CreateLogStream"
+                  - "logs:PutLogEvents"
+                  - "ecr:BatchGetImage"
+                  - "ecr:GetDownloadUrlForLayer"
+                Resource: "*"
 
   AssetProxyFunction:
     Type: AWS::Lambda::Function
@@ -55,20 +58,32 @@ Resources:
         Variables:
           BUCKET_NAME: !Ref AssetBucket
 
-  # --- PUBLIC URL (No OAC) ---
+  # --- IAM AUTHENTICATED URL ---
   AssetFunctionUrl:
     Type: AWS::Lambda::Url
     Properties:
-      AuthType: NONE # Bypasses SigV4 issues
+      AuthType: AWS_IAM # Bypasses the boundary restriction on public URLs
       TargetFunctionArn: !Ref AssetProxyFunction
 
+  # Allow CloudFront to invoke the function URL using SigV4
   UrlInvokePermission:
     Type: AWS::Lambda::Permission
     Properties:
       FunctionName: !Ref AssetProxyFunction
       Action: lambda:InvokeFunctionUrl
-      Principal: "*"
-      FunctionUrlAuthType: NONE
+      Principal: cloudfront.amazonaws.com
+      SourceArn: !Sub 'arn:aws:cloudfront::${AWS::AccountId}:distribution/${AssetDistribution}'
+      FunctionUrlAuthType: AWS_IAM
+
+  # --- CLOUDFRONT OAC FOR LAMBDA ---
+  LambdaOAC:
+    Type: AWS::CloudFront::OriginAccessControl
+    Properties: 
+      OriginAccessControlConfig: 
+        Name: !Sub '${AWS::StackName}-OAC'
+        OriginAccessControlOriginType: lambda
+        SigningBehavior: always
+        SigningProtocol: sigv4
 
   # --- DISTRIBUTION ---
   AssetDistribution:
@@ -79,23 +94,21 @@ Resources:
         Origins:
           - Id: LambdaOrigin
             DomainName: !Select [2, !Split ["/", !GetAtt AssetFunctionUrl.FunctionUrl]]
+            OriginAccessControlId: !Ref LambdaOAC
             CustomOriginConfig:
               OriginProtocolPolicy: https-only
-            # SRE Tip: Custom Headers can be used in your Go code 
-            # to verify the request actually came from CloudFront.
-            OriginCustomHeaders:
-              - HeaderName: X-Custom-Auth-Header
-                HeaderValue: "super-secret-validation-string"
         DefaultCacheBehavior:
           TargetOriginId: LambdaOrigin
           ViewerProtocolPolicy: redirect-to-https
           AllowedMethods: [GET, HEAD, OPTIONS]
-          # Standard caching
+          # Standard Caching Optimized
           CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6
-          ForwardedValues:
-            QueryString: true
-            Cookies: { Forward: none }
+          # CRITICAL: Use Managed-AllViewerExceptHostHeader (ID: b0594113-f00d-4bb5-8664-586b4618e7d7)
+          # This ensures CloudFront signs for the Lambda Host, not the CloudFront Host.
+          OriginRequestPolicyId: b0594113-f00d-4bb5-8664-586b4618e7d7
 
 Outputs:
   CloudFrontDomain:
     Value: !GetAtt AssetDistribution.DomainName
+  LambdaFunctionUrl:
+    Value: !GetAtt AssetFunctionUrl.FunctionUrl
