@@ -56,3 +56,12 @@ jobs:
           aws cloudfront create-invalidation \
             --distribution-id $DISTRIBUTION_ID \
             --paths "/*"
+      - name: Print Stack Outputs
+        run: |
+          echo "========================================="
+          echo "         INFRASTRUCTURE OUTPUTS          "
+          echo "========================================="
+          aws cloudformation describe-stacks \
+            --stack-name ${{ env.STACK_NAME }} \
+            --query "Stacks[0].Outputs" \
+            --output table

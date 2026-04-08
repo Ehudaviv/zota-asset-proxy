@@ -73,6 +73,14 @@ Resources:
       SourceArn: !Sub 'arn:aws:cloudfront::${AWS::AccountId}:distribution/${AssetProxyDistribution}'
       FunctionUrlAuthType: AWS_IAM
 
+  LambdaInvokeFunctionPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref AssetProxyFunction
+      Action: lambda:InvokeFunction          
+      Principal: cloudfront.amazonaws.com
+      SourceArn: !Sub 'arn:aws:cloudfront::${AWS::AccountId}:distribution/${AssetProxyDistribution}'
+
   CloudFrontOAC:
     Type: AWS::CloudFront::OriginAccessControl
     Properties:
