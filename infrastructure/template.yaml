@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: 'Serverless asset proxy - Simple Architecture'
+Description: 'Asset Proxy - Sandbox Compliant Version'
 
 Parameters:
   ImageTag:
@@ -8,34 +8,43 @@ Parameters:
     Type: String
 
 Resources:
-  # --- Storage ---
   AssetBucket:
     Type: AWS::S3::Bucket
     Properties:
-      # Using the name format from your previous successful deploy
       BucketName: !Sub 'asset-proxy-${AWS::AccountId}-${AWS::Region}-vault'
 
-  # --- THE PERMISSION FIX ---
-  # Since we can't create roles or attach policies to the manual role,
-  # we tell the Bucket to allow the manual role to read from it.
-  AssetBucketPolicy:
-    Type: AWS::S3::BucketPolicy
+  # --- COMPLIANT IAM ROLE ---
+  AssetProxyLambdaRole:
+    Type: AWS::IAM::Role
     Properties:
-      Bucket: !Ref AssetBucket
-      PolicyDocument:
+      # Use the naming convention required by your policy
+      RoleName: !Sub 'asset-proxy-role-${AWS::StackName}'
+      # MANDATORY: This satisfies your 'AllowIAMCreateLambdaRolesWithBoundary' rule
+      PermissionsBoundary: 'arn:aws:iam::377786476724:policy/CandidatePermissionsBoundary'
+      AssumeRolePolicyDocument:
         Version: '2012-10-17'
         Statement:
           - Effect: Allow
             Principal:
-              AWS: 'arn:aws:iam::377786476724:role/asset-proxy-lambda-role-manual'
-            Action:
-              - s3:GetObject
-              - s3:ListBucket
-            Resource:
-              - !Sub 'arn:aws:s3:::${AssetBucket}'
-              - !Sub 'arn:aws:s3:::${AssetBucket}/*'
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        # The ONLY managed policy your account allows
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        # Use an Inline Policy for S3 because you are forbidden from Managed S3 policies
+        - PolicyName: S3Access
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:ListBucket
+                Resource:
+                  - !Sub 'arn:aws:s3:::${AssetBucket}'
+                  - !Sub 'arn:aws:s3:::${AssetBucket}/*'
 
-  # --- Lambda Function ---
   AssetProxyFunction:
     Type: AWS::Lambda::Function
     Properties:
@@ -43,57 +52,78 @@ Resources:
       PackageType: Image
       Code:
         ImageUri: !Sub '${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/zota-asset-proxy:${ImageTag}'
-      # Using the existing manual role to avoid iam:CreateRole errors
-      Role: 'arn:aws:iam::377786476724:role/asset-proxy-lambda-role-manual'
-      Architectures:
-        - arm64
+      Role: !GetAtt AssetProxyLambdaRole.Arn
+      Architectures: [arm64]
       Timeout: 20
       Environment:
         Variables:
           BUCKET_NAME: !Ref AssetBucket
 
-  # --- Function URL (Public for simplicity) ---
   AssetFunctionUrl:
     Type: AWS::Lambda::Url
     Properties:
-      AuthType: NONE
+      AuthType: AWS_IAM
       TargetFunctionArn: !Ref AssetProxyFunction
 
-  # --- Public Invoke Permission ---
   UrlInvokePermission:
     Type: AWS::Lambda::Permission
     Properties:
       FunctionName: !Ref AssetProxyFunction
       Action: lambda:InvokeFunctionUrl
-      Principal: "*"
-      FunctionUrlAuthType: NONE
+      Principal: cloudfront.amazonaws.com
+      SourceArn: !Sub 'arn:aws:cloudfront::${AWS::AccountId}:distribution/${AssetDistribution}'
+      FunctionUrlAuthType: AWS_IAM
 
-  # --- Distribution ---
+  LambdaOAC:
+    Type: AWS::CloudFront::OriginAccessControl
+    Properties: 
+      OriginAccessControlConfig: 
+        Name: !Sub '${AWS::StackName}-OAC'
+        OriginAccessControlOriginType: lambda
+        SigningBehavior: always
+        SigningProtocol: sigv4
+
+  HostHeaderFunction:
+    Type: AWS::CloudFront::Function
+    Properties:
+      Name: !Sub "${AWS::StackName}-FixHost"
+      FunctionConfig:
+        Comment: "Fixes Host header for Lambda OAC signature"
+        Runtime: cloudfront-js-1.0
+      FunctionCode: 
+        Fn::Sub: 
+          - |
+            function handler(event) {
+              var request = event.request;
+              request.headers['host'] = { value: '${LambdaHost}' };
+              return request;
+            }
+          - LambdaHost: !Select [2, !Split ["/", !GetAtt AssetFunctionUrl.FunctionUrl]]
+
   AssetDistribution:
     Type: AWS::CloudFront::Distribution
     Properties:
       DistributionConfig:
         Enabled: true
-        HttpVersion: http2
         Origins:
           - Id: LambdaOrigin
             DomainName: !Select [2, !Split ["/", !GetAtt AssetFunctionUrl.FunctionUrl]]
+            OriginAccessControlId: !Ref LambdaOAC
             CustomOriginConfig:
               OriginProtocolPolicy: https-only
         DefaultCacheBehavior:
           TargetOriginId: LambdaOrigin
           ViewerProtocolPolicy: redirect-to-https
           AllowedMethods: [GET, HEAD, OPTIONS]
-          # Managed-CachingOptimized
-          CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6
-          # We don't forward headers here to keep the host header clean
+          FunctionAssociations:
+            - EventType: viewer-request
+              FunctionARN: !GetAtt HostHeaderFunction.FunctionARN
           ForwardedValues:
             QueryString: true
-            Cookies:
-              Forward: none
+            Cookies: { Forward: none }
+            Headers: [Origin, Access-Control-Request-Headers, Access-Control-Request-Method]
+          CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad
 
 Outputs:
   CloudFrontDomain:
     Value: !GetAtt AssetDistribution.DomainName
-  LambdaUrl:
-    Value: !GetAtt AssetFunctionUrl.FunctionUrl
