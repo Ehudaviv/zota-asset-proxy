@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: 'Asset Proxy - Sandbox Compliant - IAM Auth with OAC'
+Description: 'Asset Proxy - Sandbox Compliant - IAM Auth with Custom OAC Policy'
 
 Parameters:
   ImageTag:
@@ -62,10 +62,9 @@ Resources:
   AssetFunctionUrl:
     Type: AWS::Lambda::Url
     Properties:
-      AuthType: AWS_IAM # Bypasses the boundary restriction on public URLs
+      AuthType: AWS_IAM
       TargetFunctionArn: !Ref AssetProxyFunction
 
-  # Allow CloudFront to invoke the function URL using SigV4
   UrlInvokePermission:
     Type: AWS::Lambda::Permission
     Properties:
@@ -75,7 +74,7 @@ Resources:
       SourceArn: !Sub 'arn:aws:cloudfront::${AWS::AccountId}:distribution/${AssetDistribution}'
       FunctionUrlAuthType: AWS_IAM
 
-  # --- CLOUDFRONT OAC FOR LAMBDA ---
+  # --- CLOUDFRONT OAC ---
   LambdaOAC:
     Type: AWS::CloudFront::OriginAccessControl
     Properties: 
@@ -84,6 +83,22 @@ Resources:
         OriginAccessControlOriginType: lambda
         SigningBehavior: always
         SigningProtocol: sigv4
+
+  # --- CUSTOM ORIGIN REQUEST POLICY ---
+  # This replaces the missing Managed Policy to strip the Host header
+  CustomOriginRequestPolicy:
+    Type: AWS::CloudFront::OriginRequestPolicy
+    Properties:
+      OriginRequestPolicyConfig:
+        Name: !Sub "${AWS::StackName}-ExcludeHostHeader"
+        CookiesConfig:
+          CookieBehavior: none
+        HeadersConfig:
+          HeaderBehavior: allExcept
+          Headers:
+            - Host
+        QueryStringsConfig:
+          QueryStringBehavior: all
 
   # --- DISTRIBUTION ---
   AssetDistribution:
@@ -101,11 +116,10 @@ Resources:
           TargetOriginId: LambdaOrigin
           ViewerProtocolPolicy: redirect-to-https
           AllowedMethods: [GET, HEAD, OPTIONS]
-          # Standard Caching Optimized
+          # Managed-CachingOptimized
           CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6
-          # CRITICAL: Use Managed-AllViewerExceptHostHeader (ID: b0594113-f00d-4bb5-8664-586b4618e7d7)
-          # This ensures CloudFront signs for the Lambda Host, not the CloudFront Host.
-          OriginRequestPolicyId: b0594113-f00d-4bb5-8664-586b4618e7d7
+          # Our Custom Policy
+          OriginRequestPolicyId: !Ref CustomOriginRequestPolicy
 
 Outputs:
   CloudFrontDomain:
