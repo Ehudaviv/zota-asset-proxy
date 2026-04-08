@@ -65,7 +65,18 @@ Resources:
           AllowedMethods: [GET, HEAD, OPTIONS]
 
 Outputs:
+  LambdaFunctionURL:
+    Description: "The direct URL for the Lambda"
+    Value: !GetAtt AssetProxyFunctionUrl.FunctionUrl
+  
   CloudFrontDomain:
-    Value: !GetAtt AssetDistribution.DomainName
-  LambdaUrl:
-    Value: !GetAtt AssetFunctionUrl.FunctionUrl
+    Description: "The public domain for the proxy"
+    Value: !GetAtt AssetProxyDistribution.DomainName
+  
+  LambdaRoleARN:
+    Description: "The IAM Role executing the code"
+    Value: !Sub 'arn:aws:iam::${AWS::AccountId}:role/asset-proxy-lambda-role-manual'
+
+  DistributionID:
+    Description: "The ID for cache invalidations"
+    Value: !Ref AssetProxyDistribution

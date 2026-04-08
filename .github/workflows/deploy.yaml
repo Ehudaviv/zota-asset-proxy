@@ -34,3 +34,11 @@ jobs:
             ImageTag=${{ inputs.image_tag }},
             ProjectName=asset-proxy-stack
           capabilities: CAPABILITY_NAMED_IAM
+      - name: Output Deployment Details
+        run: |
+          echo "--- DEPLOYMENT REPORT ---"
+          aws cloudformation describe-stacks \
+            --stack-name asset-proxy-stack \
+            --query 'Stacks[0].Outputs' \
+            --output table
+          echo "--- END DEPLOYMENT REPORT ---"
