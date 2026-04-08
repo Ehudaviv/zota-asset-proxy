@@ -7,7 +7,6 @@ Parameters:
     Description: 'URI of the Lambda container image in ECR'
 
 Resources:
-  # 1. Private S3 Bucket
   AssetBucket:
     Type: AWS::S3::Bucket
     Properties:
@@ -18,7 +17,6 @@ Resources:
         IgnorePublicAcls: true
         RestrictPublicBuckets: true
 
-  # 2. IAM Role for Lambda
   LambdaExecutionRole:
     Type: AWS::IAM::Role
     Properties:
@@ -31,7 +29,6 @@ Resources:
             Principal:
               Service: lambda.amazonaws.com
             Action: sts:AssumeRole
-      # The sandbox specifically allows attaching this exact managed policy
       ManagedPolicyArns:
         - 'arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole'
       Policies:
@@ -47,7 +44,6 @@ Resources:
                   - !Sub '${AssetBucket.Arn}'
                   - !Sub '${AssetBucket.Arn}/*'
 
-  # 3. Lambda Function
   AssetProxyFunction:
     Type: AWS::Lambda::Function
     Properties:
@@ -62,14 +58,12 @@ Resources:
         Variables:
           BUCKET_NAME: !Ref AssetBucket
 
-  # 4. Lambda Function URL (IAM Auth required)
   AssetProxyFunctionUrl:
     Type: AWS::Lambda::Url
     Properties:
       TargetFunctionArn: !Ref AssetProxyFunction
       AuthType: AWS_IAM
 
-  # 5. Resource Policy allowing CloudFront to invoke the Lambda URL
   LambdaInvokePermission:
     Type: AWS::Lambda::Permission
     Properties:
@@ -79,7 +73,6 @@ Resources:
       SourceArn: !Sub 'arn:aws:cloudfront::${AWS::AccountId}:distribution/${AssetProxyDistribution}'
       FunctionUrlAuthType: AWS_IAM
 
-  # 6. CloudFront Origin Access Control (OAC)
   CloudFrontOAC:
     Type: AWS::CloudFront::OriginAccessControl
     Properties:
@@ -89,7 +82,6 @@ Resources:
         SigningBehavior: always
         SigningProtocol: sigv4
 
-  # 7. CloudFront Distribution
   AssetProxyDistribution:
     Type: AWS::CloudFront::Distribution
     Properties:
@@ -97,7 +89,6 @@ Resources:
         Enabled: true
         Origins:
           - Id: LambdaOrigin
-            # Extracts the bare domain name from the Function URL (removes https:// and trailing /)
             DomainName: !Select [2, !Split ['/', !GetAtt AssetProxyFunctionUrl.FunctionUrl]]
             CustomOriginConfig:
               OriginProtocolPolicy: https-only
@@ -111,7 +102,6 @@ Resources:
           CachedMethods:
             - GET
             - HEAD
-          # Using AWS Managed CachingOptimized policy for simplicity and security
           CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6
           Compress: true
 
@@ -119,6 +109,12 @@ Outputs:
   CloudFrontDomain:
     Description: 'URL of the CloudFront Distribution'
     Value: !Sub 'https://${AssetProxyDistribution.DomainName}'
+  CloudFrontDistributionId:
+    Description: 'ID of the CloudFront Distribution for Cache Invalidations'
+    Value: !Ref AssetProxyDistribution
   S3BucketName:
     Description: 'Name of the private S3 bucket'
     Value: !Ref AssetBucket
+  LambdaFunctionUrl:
+    Description: 'The IAM-secured URL of the Lambda function (Origin)'
+    Value: !GetAtt AssetProxyFunctionUrl.FunctionUrl
